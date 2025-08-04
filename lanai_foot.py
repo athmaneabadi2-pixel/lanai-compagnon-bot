@@ -41,7 +41,9 @@ for nom, id_ligue in competitions.items():
         print(f"Erreur pour {nom} : {response.status_code}")
 # Petit changement pour relancer Render
 # Trigger Render redeploy
-Fix syntax error from manual comment
+# Fix syntax error from manual comment
+
+
 
 
 
