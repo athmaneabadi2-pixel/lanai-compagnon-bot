@@ -39,3 +39,6 @@ for nom, id_ligue in competitions.items():
             print(f"[{nom}] {home} {score_home} - {score_away} {away}")
     else:
         print(f"Erreur pour {nom} : {response.status_code}")
+# Petit changement pour relancer Render
+Trigger Render redeploy
+
