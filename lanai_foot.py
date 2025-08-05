@@ -21,7 +21,7 @@ headers_basket = {
     "X-RapidAPI-Host": "api-basketball.p.rapidapi.com"
 }
 
-# ⚽ COMPÉTITIONS DE FOOT (5 importantes uniquement)
+# ⚽ COMPÉTITIONS DE FOOT
 competitions_foot = {
     "Ligue 1": 61,
     "Ligue des Champions": 2,
@@ -34,48 +34,43 @@ competitions_basket = {
     "LNB Pro A": 87
 }
 
-print("📊 Résultats FOOT du", hier)
+# Stocker tous les résultats trouvés
+resultats = []
+
+# FOOT
 for nom, id_ligue in competitions_foot.items():
     try:
         url = f"https://api-football-v1.p.rapidapi.com/v3/fixtures?date={hier}&league={id_ligue}&season=2024"
         response = requests.get(url, headers=headers_foot)
         if response.status_code == 200:
             matchs = response.json().get('response', [])
-            if matchs:
-                for match in matchs:
-                    home = match['teams']['home']['name']
-                    away = match['teams']['away']['name']
-                    score_home = match['goals']['home']
-                    score_away = match['goals']['away']
-                    print(f"[{nom}] {home} {score_home} - {score_away} {away}")
-            else:
-                print(f"ℹ️ Aucun match pour {nom} hier. On croise les doigts pour aujourd’hui in sha Allah 🙂")
-        else:
-            print(f"❌ Erreur FOOT pour {nom} : {response.status_code}")
-            print("Aucune info aujourd’hui, les scores seront là demain in sha Allah 🙂")
-    except Exception as e:
-        print(f"❌ Erreur inattendue FOOT pour {nom} : {e}")
-        print("Lanai n’a pas pu récupérer les scores aujourd’hui. On fait au mieux pour demain in sha Allah 🙂")
+            for match in matchs:
+                home = match['teams']['home']['name']
+                away = match['teams']['away']['name']
+                score_home = match['goals']['home']
+                score_away = match['goals']['away']
+                resultats.append(f"[{nom}] {home} {score_home} - {score_away} {away}")
+    except:
+        pass
 
-print("\n🏀 Résultats BASKET du", hier)
+# BASKET
 for nom, id_league in competitions_basket.items():
     try:
         url = f"https://api-basketball.p.rapidapi.com/games?date={hier}&league={id_league}&season=2024"
         response = requests.get(url, headers=headers_basket)
         if response.status_code == 200:
             matchs = response.json().get("response", [])
-            if matchs:
-                for match in matchs:
-                    home = match['teams']['home']['name']
-                    away = match['teams']['away']['name']
-                    score_home = match['scores']['home']['points']
-                    score_away = match['scores']['away']['points']
-                    print(f"[{nom}] {home} {score_home} - {score_away} {away}")
-            else:
-                print(f"ℹ️ Aucun match pour {nom} hier. On croise les doigts pour aujourd’hui in sha Allah 🙂")
-        else:
-            print(f"❌ Erreur BASKET pour {nom} : {response.status_code}")
-            print("Aucune info aujourd’hui, les scores seront là demain in sha Allah 🙂")
-    except Exception as e:
-        print(f"❌ Erreur inattendue BASKET pour {nom} : {e}")
-        print("Lanai n’a pas pu récupérer les scores aujourd’hui. On fait au mieux pour demain in sha Allah 🙂")
+            for match in matchs:
+                home = match['teams']['home']['name']
+                away = match['teams']['away']['name']
+                score_home = match['scores']['home']['points']
+                score_away = match['scores']['away']['points']
+                resultats.append(f"[{nom}] {home} {score_home} - {score_away} {away}")
+    except:
+        pass
+
+# Afficher uniquement s'il y a des résultats
+if resultats:
+    print(f"📊 Résultats du {hier}")
+    for ligne in resultats:
+        print(ligne)
