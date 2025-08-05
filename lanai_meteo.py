@@ -1,20 +1,27 @@
 import requests
 import os
 from datetime import datetime, timedelta
+from twilio.rest import Client
 
-# Clé API météo depuis Render
+# ======== Clés API et config depuis Render ========
 api_key = os.environ.get("OPENWEATHER_API_KEY")
+twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+twilio_token = os.environ.get("TWILIO_AUTH_TOKEN")
+twilio_whatsapp = os.environ.get("TWILIO_WHATSAPP_NUMBER")  # ex: whatsapp:+14155238886
+receiver_whatsapp = os.environ.get("MY_WHATSAPP_NUMBER")    # ex: whatsapp:+33XXXXXXXXX
 
 if not api_key:
-    raise ValueError("❌ Clé API météo manquante. Ajoutez OPENWEATHER_API_KEY dans Render.")
+    raise ValueError("❌ Clé API météo manquante.")
+if not twilio_sid or not twilio_token:
+    raise ValueError("❌ Identifiants Twilio manquants.")
 
-# Coordonnées GPS précises
+# ======== Coordonnées GPS ========
 villes = {
-    "Loffre": {"lat": 50.3844, "lon": 3.1069},        
+    "Loffre": {"lat": 50.3844, "lon": 3.1069},
     "Le Cannet (où Yacine vit)": {"lat": 43.5769, "lon": 7.0191}
 }
 
-# Récupérer la météo de demain avec One Call 3.0
+# ======== Fonction météo ========
 def get_weather_tomorrow(lat, lon):
     url = f"https://api.openweathermap.org/data/3.0/onecall?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=fr"
     response = requests.get(url)
@@ -25,9 +32,8 @@ def get_weather_tomorrow(lat, lon):
     data = response.json()
 
     if "daily" not in data:
-        return "Impossible de trouver la météo de demain (pas de données 'daily')"
+        return "Impossible de trouver la météo de demain"
 
-    # Demain = index 1
     tomorrow_data = data["daily"][1]
     temp = round(tomorrow_data["temp"]["day"])
     description = tomorrow_data["weather"][0]["description"].capitalize()
@@ -35,11 +41,20 @@ def get_weather_tomorrow(lat, lon):
 
     return f"{temp}°C, {description}, humidité {humidity}%"
 
-# Date de demain
+# ======== Création du message ========
 tomorrow_date = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
+message_text = f"🤲 Salam aleykum Mohamed, voici la météo de demain ({tomorrow_date}) :\n\n"
 
-# Message
-print(f"🤲 Salam aleykum Mohamed, voici la météo de demain ({tomorrow_date}) :\n")
 for nom, coords in villes.items():
     meteo = get_weather_tomorrow(coords["lat"], coords["lon"])
-    print(f"🌤 {nom} : {meteo}")
+    message_text += f"🌤 {nom} : {meteo}\n"
+
+# ======== Envoi via Twilio WhatsApp ========
+client = Client(twilio_sid, twilio_token)
+message = client.messages.create(
+    from_=twilio_whatsapp,
+    body=message_text,
+    to=receiver_whatsapp
+)
+
+print(f"✅ Message envoyé sur WhatsApp : {message.sid}")
