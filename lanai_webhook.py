@@ -8,8 +8,12 @@ from response_generator import generate_response
 
 app = Flask(__name__)
 
-with open("memoire_mohamed_lanai.json", "r", encoding="utf-8") as f:
-    data_mohamed = json.load(f)
+# Chargement mémoire Mohamed (gère l’erreur si fichier absent)
+try:
+    with open("memoire_mohamed_lanai.json", "r", encoding="utf-8") as f:
+        data_mohamed = json.load(f)
+except FileNotFoundError:
+    data_mohamed = {}
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -25,4 +29,5 @@ def webhook():
     return str(response)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
