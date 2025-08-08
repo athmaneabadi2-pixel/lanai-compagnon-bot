@@ -1,5 +1,6 @@
-from intent_detector import detect_intent_gpt as detect_intent
 import os
+import json
+from openai import OpenAI
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -38,5 +39,12 @@ Exemples :
     json_response = response.choices[0].message.content.strip()
     try:
         return json.loads(json_response)
-    except:
-        return {"intent": "general", "team": None, "action": None}
+    except Exception:
+        # Optionnel : retour basique si la réponse GPT est mal formatée
+        return {
+            "intent": "general",
+            "team": None,
+            "action": None
+        }
+
+
