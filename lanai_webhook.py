@@ -3,7 +3,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 import json
 import os
 
-from intent_detector import detect_intent
+from intent_detector import detect_intent_gpt as detect_intent
 from response_generator import generate_response
 
 app = Flask(__name__)
@@ -31,3 +31,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
