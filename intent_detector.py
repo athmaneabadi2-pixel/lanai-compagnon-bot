@@ -1,137 +1,75 @@
 import os
-import json
-from openai import OpenAI
+import requests
 
+API_FOOT_KEY = os.environ.get("API_FOOT_KEY")
+BASE_URL = "https://v3.football.api-sports.io"
+
+# Petite base d'ID équipe (à compléter !)
+TEAM_IDS = {
+    "PSG": 85,
+    "Paris SG": 85,
+    "Paris": 85,
+    "OM": 81,
+    "Marseille": 81,
+    "Lyon": 80,
+    "RC Lens": 116,
+    "Lens": 116,
+    "Monaco": 91,
+    # Ajoute les autres clubs ici !
+}
+
+def get_next_match(team_name):
+    team_id = TEAM_IDS.get(team_name)
+    if not team_id:
+        return f"Désolé, je ne trouve pas l'équipe '{team_name}' dans ma base de données."
+    url = f"{BASE_URL}/fixtures?team={team_id}&next=1"
+    headers = {"x-apisports-key": API_FOOT_KEY}
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        data = r.json()
+        if data["response"]:
+            match = data['response'][0]
+            date = match['fixture']['date'][:10]
+            home = match['teams']['home']['name']
+            away = match['teams']['away']['name']
+            return f"Le prochain match du {team_name} : {home} vs {away}, le {date}."
+        else:
+            return "Pas de prochain match trouvé."
+    else:
+        return "Impossible de récupérer le prochain match."
+
+def generate_response(intent, user_msg, data_json):
+    # ROUTING SPORT
+    if intent["intent"] == "football":
+        if intent.get("action") == "next_match" and intent.get("team"):
+            return get_next_match(intent["team"])
+        # ICI tu ajoutes d'autres actions comme score, calendrier, joueur...
+        # elif intent.get("action") == "score":
+        #    return get_score(intent["team"], intent.get("date"))
+        else:
+            return "Tu veux parler de foot ? Peux-tu préciser ta question (équipe, date, joueur…) ?"
+    # ROUTING AUTRES SPORTS
+    elif intent["intent"] == "basketball":
+        # Si tu as une API basket, même logique ici !
+        return "Fonction basket à ajouter ici !"
+    # ROUTING COMPAGNON (GPT)
+    else:
+        return generate_gpt_response(user_msg, data_json)  # Ta fonction actuelle GPT-4 compagnon
+
+# Exemple de fonction GPT compagnon (existant chez toi)
+from openai import OpenAI
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-def detect_intent_gpt(message):
+def generate_gpt_response(user_msg, data_json):
     prompt = f"""
-Tu es une IA experte qui analyse les messages WhatsApp pour détecter l'intention de l'utilisateur concernant le football, le basket ou la météo, ou une question générale.
-Tu peux détecter :
-- Le sport concerné (football, basketball, weather, general)
-- L’équipe (team) ou le joueur (player)
-- L’action demandée (score, calendrier, prochain match, classement, blessure, actualité, météo…)
-- Une date précise si mentionnée (ex : "hier", "aujourd'hui", "demain", "14 août", etc.)
-
-Réponds **exclusivement** en JSON, jamais de texte libre.
-
-Structure du JSON :
-{{
-  "intent": "football" ou "basketball" ou "weather" ou "general",
-  "team": "nom de l’équipe si concerné, sinon null",
-  "player": "nom du joueur si question sur un joueur, sinon null",
-  "action": "score" ou "next_match" ou "calendar" ou "ranking" ou "injury_status" ou "current_weather" ou "news" ou null,
-  "date": "date précise ou indication comme 'hier', 'aujourd’hui', 'demain', sinon null"
-}}
-
-Exemples :
-
-- "C'est quand le prochain match du PSG ?" =>
-{{
-  "intent": "football",
-  "team": "PSG",
-  "player": null,
-  "action": "next_match",
-  "date": null
-}}
-
-- "Score du RC Lens hier" =>
-{{
-  "intent": "football",
-  "team": "RC Lens",
-  "player": null,
-  "action": "score",
-  "date": "hier"
-}}
-
-- "Le calendrier de Lyon" =>
-{{
-  "intent": "football",
-  "team": "Lyon",
-  "player": null,
-  "action": "calendar",
-  "date": null
-}}
-
-- "Mbappé est blessé ?" =>
-{{
-  "intent": "football",
-  "team": null,
-  "player": "Mbappé",
-  "action": "injury_status",
-  "date": null
-}}
-
-- "Résultat du match de l’Algérie du 12 juillet" =>
-{{
-  "intent": "football",
-  "team": "Algérie",
-  "player": null,
-  "action": "score",
-  "date": "12 juillet"
-}}
-
-- "Classement de la Ligue 1" =>
-{{
-  "intent": "football",
-  "team": null,
-  "player": null,
-  "action": "ranking",
-  "date": null
-}}
-
-- "C’est quoi la météo à Paris demain ?" =>
-{{
-  "intent": "weather",
-  "team": null,
-  "player": null,
-  "action": "current_weather",
-  "date": "demain"
-}}
-
-- "Les prochains matchs de Boston Celtics" =>
-{{
-  "intent": "basketball",
-  "team": "Boston Celtics",
-  "player": null,
-  "action": "calendar",
-  "date": null
-}}
-
-- "Est-ce que LeBron James joue ce soir ?" =>
-{{
-  "intent": "basketball",
-  "team": null,
-  "player": "LeBron James",
-  "action": "injury_status",
-  "date": "ce soir"
-}}
-
-- "Salut, comment tu vas ?" =>
-{{
-  "intent": "general",
-  "team": null,
-  "player": null,
-  "action": null,
-  "date": null
-}}
-    """
-
+Tu es Lanai, l’ami bienveillant de Mohamed. Tu connais ses infos : {data_json}.
+Réponds toujours simplement, chaleureusement, en français facile.
+Voici le message : « {user_msg} »
+"""
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0,
+        temperature=0.5,
         max_tokens=300
     )
-    json_response = response.choices[0].message.content.strip()
-    try:
-        return json.loads(json_response)
-    except Exception:
-        # En cas d’erreur, retourne une intention "générale" basique
-        return {
-            "intent": "general",
-            "team": None,
-            "player": None,
-            "action": None,
-            "date": None
-        }
+    return response.choices[0].message.content.strip()
