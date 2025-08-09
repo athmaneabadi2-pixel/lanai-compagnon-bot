@@ -1,3 +1,4 @@
+# lanai_webhook.py
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 import json
@@ -8,7 +9,7 @@ from response_generator import generate_response
 
 app = Flask(__name__)
 
-# Chargement mémoire Mohamed (gère l’erreur si fichier absent)
+# Charger la "mémoire" de Mohamed (optionnel)
 try:
     with open("memoire_mohamed_lanai.json", "r", encoding="utf-8") as f:
         data_mohamed = json.load(f)
@@ -19,16 +20,16 @@ except FileNotFoundError:
 def webhook():
     user_msg = request.form.get("Body", "")
     intent = detect_intent(user_msg)
+    print("INTENT DÉTECTÉ:", intent)  # visible dans les logs Render
     try:
         reply = generate_response(intent, user_msg, data_mohamed)
     except Exception as e:
+        print("ERREUR generate_response:", e)
         reply = "Désolé, une erreur technique empêche Lanai de répondre."
-
-    response = MessagingResponse()
-    response.message(reply)
-    return str(response)
+    resp = MessagingResponse()
+    resp.message(reply)
+    return str(resp)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
