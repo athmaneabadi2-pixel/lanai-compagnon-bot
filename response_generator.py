@@ -117,7 +117,6 @@ def nba_next_game(team_name: str, season: int = 2024) -> str:
     team_id, canon = nba_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l’équipe NBA « {team_name} »."
-    # endpoint /games?season=2024&team=14&next=1
     url = f"{NBA_BASE}/games"
     params = {"season": season, "team": team_id, "next": 1, "timezone": "Europe/Paris"}
     try:
@@ -151,18 +150,19 @@ def generate_gpt_response(user_msg: str, data_json: dict) -> str:
         f"Contexte: {data_json}\n"
         f"Message: « {user_msg} »"
     )
-    resp = client_ai.chato.completions.create(  # correction nom de client selon SDK (fallback ci-dessous si erreur)
+    resp = client_ai.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
         max_tokens=300,
     )
     return resp.choices[0].message.content.strip()
+
 # --- ROUTING ---
 def generate_response(intent: dict, user_msg: str, data_json: dict) -> str:
     text = user_msg.lower()
 
-    # Date du jour (évite que GPT invente)
+    # Date du jour
     if "quelle date" in text or "quel jour" in text or "date d'aujourd" in text:
         return f"Aujourd’hui, nous sommes le {today_paris()}."
 
@@ -171,26 +171,24 @@ def generate_response(intent: dict, user_msg: str, data_json: dict) -> str:
     team = intent.get("team")
 
     # Heuristique : si pas d'action mais on parle de "match" => next_match
-    if not action and any(k in text for k in ["prochain", "match", "jouent quand", "jouent quand ?", "jouent?"]):
+    if not action and any(k in text for k in ["prochain", "match", "jouent quand", "jouent?"]):
         action = "next_match"
 
     # FOOT
     if sport == "football":
         if action == "next_match" and team:
             return foot_next_match(team)
-        # Ici tu pourras ajouter score, calendar, etc.
-        return "Tu veux parler de foot ? Dis-moi l’équipe (ex : RC Lens, PSG, OM) et ce que tu veux (prochain match, score)."
+        return "Tu veux parler de foot ? Donne-moi l’équipe (ex : RC Lens, PSG, OM) et ce que tu veux (prochain match, score)."
 
     # BASKET
     if sport == "basketball":
         if action == "next_match" and team:
             return nba_next_game(team)
-        return "Pour le basket, dis-moi l’équipe (ex : Los Angeles Lakers) et je te donne le prochain match."
+        return "Pour le basket, donne-moi l’équipe (ex : Los Angeles Lakers) et je te donne le prochain match."
 
-    # MÉTÉO (placeholder pour plus tard)
+    # MÉTÉO (placeholder)
     if sport == "weather":
-        return "Pour la météo, dis-moi la ville et le jour (ex : Paris demain)."
+        return "Pour la météo, donne-moi la ville et le jour (ex : Paris demain)."
 
     # Fallback → GPT compagnon
     return generate_gpt_response(user_msg, data_json)
-
