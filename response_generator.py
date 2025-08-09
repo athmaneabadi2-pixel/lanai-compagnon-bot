@@ -1,81 +1,88 @@
-# response_generator.py
-import os
-import re
-import unicodedata
+import os, re, unicodedata, json, requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import requests
+from babel.dates import format_datetime
 from openai import OpenAI
 
+# ====== Config ======
 client_ai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
+TZ = ZoneInfo("Europe/Paris")
 
-# ---------- Helpers texte ----------
+# ====== Helpers ======
 def _slug(txt: str) -> str:
-    if not txt:
-        return ""
-    txt = txt.lower().strip()
-    txt = unicodedata.normalize("NFKD", txt)
+    if not txt: return ""
+    txt = unicodedata.normalize("NFKD", txt.lower().strip())
     txt = "".join(c for c in txt if not unicodedata.combining(c))
-    txt = re.sub(r"\s+", " ", txt)
-    return txt
+    return re.sub(r"\s+", " ", txt)
 
-def today_paris() -> str:
-    try:
-        return datetime.now(ZoneInfo("Europe/Paris")).strftime("%A %d %B %Y").capitalize()
-    except Exception:
-        return datetime.now().strftime("%A %d %B %Y").capitalize()
+def today_fr() -> str:
+    now = datetime.now(TZ)
+    return format_datetime(now, "EEEE d MMMM y", locale="fr")
 
-# ---------- FOOT (RapidAPI / API-FOOTBALL) ----------
+def warm_prefix(profile: dict) -> str:
+    name = (profile.get("Identité", {}) or {}).get("Prénom", "Mohamed")
+    return f"Salut {name} ! "
+
+# ====== METEO (OpenWeather One Call 3.0) ======
+def weather_tomorrow(lat: float, lon: float) -> str:
+    if not OPENWEATHER_API_KEY:
+        return "Clé météo manquante (OPENWEATHER_API_KEY)."
+    url = ("https://api.openweathermap.org/data/3.0/onecall"
+           f"?lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric&lang=fr")
+    r = requests.get(url, timeout=12)
+    if r.status_code != 200:
+        return f"Erreur météo ({r.status_code})."
+    js = r.json()
+    if "daily" not in js or not js["daily"]:
+        return "Données météo indisponibles."
+    d = js["daily"][1] if len(js["daily"]) > 1 else js["daily"][0]
+    desc = d["weather"][0]["description"]
+    tmin, tmax = round(d["temp"]["min"]), round(d["temp"]["max"])
+    return f"Demain : {desc}, {tmin}–{tmax}°C."
+
+# ====== FOOT (RapidAPI / API-FOOTBALL) ======
 FOOT_HOST = "api-football-v1.p.rapidapi.com"
 FOOT_BASE = f"https://{FOOT_HOST}/v3"
 
 def foot_headers():
-    return {
-        "x-rapidapi-key": RAPIDAPI_KEY or "",
-        "x-rapidapi-host": FOOT_HOST
-    }
+    return {"x-rapidapi-key": RAPIDAPI_KEY or "", "x-rapidapi-host": FOOT_HOST}
 
 def foot_search_team(team_query: str):
-    """Recherche l'équipe et renvoie (team_id, canonical_name) ou (None, None)."""
-    if not RAPIDAPI_KEY:
-        return None, None
-    url = f"{FOOT_BASE}/teams"
-    params = {"search": team_query}
+    if not RAPIDAPI_KEY: return (None, None)
     try:
-        r = requests.get(url, headers=foot_headers(), params=params, timeout=12)
-        if r.status_code != 200:
-            return None, None
-        data = r.json()
-        resp = data.get("response", [])
-        if not resp:
-            return None, None
+        r = requests.get(f"{FOOT_BASE}/teams", headers=foot_headers(),
+                         params={"search": team_query}, timeout=12)
+        if r.status_code != 200: return (None, None)
+        resp = r.json().get("response", [])
+        if not resp: return (None, None)
         team = resp[0]["team"]
         return team["id"], team["name"]
     except Exception:
-        return None, None
+        return (None, None)
 
 def foot_next_match(team_name: str, season: int = 2025) -> str:
-    """Prochain match (saison courante forcée pour éviter les vieux résultats)."""
+    if not RAPIDAPI_KEY:
+        return "Clé sport manquante (RAPIDAPI_KEY)."
     team_id, canon = foot_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l'équipe « {team_name} »."
-    url = f"{FOOT_BASE}/fixtures"
-    params = {"team": team_id, "season": season, "next": 1, "timezone": "Europe/Paris"}
     try:
-        r = requests.get(url, headers=foot_headers(), params=params, timeout=12)
+        r = requests.get(f"{FOOT_BASE}/fixtures", headers=foot_headers(),
+                         params={"team": team_id, "season": season, "next": 1, "timezone": "Europe/Paris"},
+                         timeout=12)
     except Exception:
-        return "Le service des matchs de foot ne répond pas pour le moment."
+        return "Le service foot ne répond pas."
     if r.status_code != 200:
-        return "Impossible de récupérer le prochain match pour cette équipe."
-    data = r.json()
-    resp = data.get("response", [])
+        return "Impossible de récupérer le prochain match."
+    resp = r.json().get("response", [])
     if not resp:
         return f"Pas de prochain match trouvé pour {canon}."
     match = resp[0]
     date_iso = match["fixture"]["date"]
     try:
-        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(ZoneInfo("Europe/Paris"))
+        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
         date_str = dt.strftime("%d/%m/%Y à %H:%M")
     except Exception:
         date_str = date_iso[:10]
@@ -83,71 +90,62 @@ def foot_next_match(team_name: str, season: int = 2025) -> str:
     away = match["teams"]["away"]["name"]
     return f"Prochain match de {canon} : {home} vs {away}, le {date_str}."
 
-# ---------- NBA (RapidAPI / API-NBA) ----------
+# ====== NBA (RapidAPI / API-NBA) ======
 NBA_HOST = "api-nba-v1.p.rapidapi.com"
 NBA_BASE = f"https://{NBA_HOST}"
 
 def nba_headers():
-    return {
-        "x-rapidapi-key": RAPIDAPI_KEY or "",
-        "x-rapidapi-host": NBA_HOST
-    }
+    return {"x-rapidapi-key": RAPIDAPI_KEY or "", "x-rapidapi-host": NBA_HOST}
 
 def nba_search_team(team_query: str):
-    """Renvoie (team_id, canonical_name) via /teams?search="""
-    if not RAPIDAPI_KEY:
-        return None, None
-    url = f"{NBA_BASE}/teams"
-    params = {"search": team_query}
+    if not RAPIDAPI_KEY: return (None, None)
     try:
-        r = requests.get(url, headers=nba_headers(), params=params, timeout=12)
-        if r.status_code != 200:
-            return None, None
-        data = r.json()
-        resp = data.get("response", [])
-        if not resp:
-            return None, None
+        r = requests.get(f"{NBA_BASE}/teams", headers=nba_headers(),
+                         params={"search": team_query}, timeout=12)
+        if r.status_code != 200: return (None, None)
+        resp = r.json().get("response", [])
+        if not resp: return (None, None)
         team = resp[0]
         return team["id"], team["name"]
     except Exception:
-        return None, None
+        return (None, None)
 
 def nba_next_game(team_name: str, season: int = 2024) -> str:
-    """Prochain match NBA pour la saison donnée (à ajuster selon la saison courante)."""
+    if not RAPIDAPI_KEY:
+        return "Clé sport manquante (RAPIDAPI_KEY)."
     team_id, canon = nba_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l’équipe NBA « {team_name} »."
-    url = f"{NBA_BASE}/games"
-    params = {"season": season, "team": team_id, "next": 1, "timezone": "Europe/Paris"}
     try:
-        r = requests.get(url, headers=nba_headers(), params=params, timeout=12)
+        r = requests.get(f"{NBA_BASE}/games", headers=nba_headers(),
+                         params={"season": season, "team": team_id, "next": 1, "timezone": "Europe/Paris"},
+                         timeout=12)
     except Exception:
-        return "Le service des matchs NBA ne répond pas pour le moment."
+        return "Le service NBA ne répond pas."
     if r.status_code != 200:
-        return "Impossible de récupérer le prochain match pour cette équipe NBA."
-    data = r.json()
-    resp = data.get("response", [])
+        return "Impossible de récupérer le prochain match NBA."
+    resp = r.json().get("response", [])
     if not resp:
         return f"Pas de prochain match trouvé pour {canon}."
-    game = resp[0]
-    date_iso = game["date"]["start"]
+    g = resp[0]
+    date_iso = g["date"]["start"]
     try:
-        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(ZoneInfo("Europe/Paris"))
+        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
         date_str = dt.strftime("%d/%m/%Y à %H:%M")
     except Exception:
         date_str = date_iso[:10]
-    home = game["teams"]["home"]["name"]
-    away = game["teams"]["away"]["name"]
+    home = g["teams"]["home"]["name"]
+    away = g["teams"]["away"]["name"]
     return f"Prochain match des {canon} : {home} vs {away}, le {date_str}."
 
-# ---------- GPT compagnon ----------
-def generate_gpt_response(user_msg: str, data_json: dict) -> str:
+# ====== GPT compagnon ======
+def generate_gpt_response(user_msg: str, profile: dict) -> str:
     prompt = (
-        "Tu es Lanai, un compagnon bienveillant pour Mohamed Djeziri. "
-        "Tu parles simplement, en phrases courtes, sans jargon. "
-        "Sa femme s'appelle Milouda, son chat Lana. "
-        "Pour la santé: conseils généraux uniquement, sans diagnostic. "
-        f"Contexte: {data_json}\n"
+        "Tu es Lanai, compagnon WhatsApp pour Mohamed Djeziri. "
+        "Style: simple, phrases courtes, bienveillant. "
+        "Rappelle-toi: sa femme Milouda, son chat Lana. "
+        "Pas de diagnostic médical, seulement du soutien.\n\n"
+        f"Profil: {json.dumps(profile, ensure_ascii=False)}\n"
         f"Message: « {user_msg} »"
     )
     resp = client_ai.chat.completions.create(
@@ -158,37 +156,52 @@ def generate_gpt_response(user_msg: str, data_json: dict) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-# --- ROUTING ---
-def generate_response(intent: dict, user_msg: str, data_json: dict) -> str:
+# ====== ROUTAGE ======
+def generate_response(intent: dict, user_msg: str, profile: dict) -> str:
     text = user_msg.lower()
 
-    # Date du jour
-    if "quelle date" in text or "quel jour" in text or "date d'aujourd" in text:
-        return f"Aujourd’hui, nous sommes le {today_paris()}."
+    # 0) Date du jour (FR garanti)
+    if any(k in text for k in ["quelle date", "quel jour", "date d'aujourd"]):
+        return warm_prefix(profile) + f"Aujourd’hui, nous sommes le {today_fr()}."
 
     sport = (intent.get("intent") or "").lower()
     action = (intent.get("action") or "").lower()
     team = intent.get("team")
 
-    # Heuristique : si pas d'action mais on parle de "match" => next_match
-    if not action and any(k in text for k in ["prochain", "match", "jouent quand", "jouent?"]):
+    # Heuristique si l’intent n’a pas d'action
+    if not action and any(k in text for k in ["prochain", "match", "jouent", "calendrier"]):
         action = "next_match"
 
-    # FOOT
+    # 1) METEO
+    if sport == "weather" or "meteo" in text or "météo" in text:
+        loc = (profile.get("location") or {})
+        lat, lon = loc.get("lat", 50.433), loc.get("lon", 2.833)  # défaut: Lens
+        return warm_prefix(profile) + weather_tomorrow(lat, lon)
+
+    # 2) FOOT
     if sport == "football":
         if action == "next_match" and team:
-            return foot_next_match(team)
-        return "Tu veux parler de foot ? Donne-moi l’équipe (ex : RC Lens, PSG, OM) et ce que tu veux (prochain match, score)."
+            return warm_prefix(profile) + foot_next_match(team)
+        return warm_prefix(profile) + "Dis-moi l’équipe (ex: PSG, RC Lens) et ce que tu veux (prochain match, score)."
 
-    # BASKET
+    # 3) BASKET
     if sport == "basketball":
         if action == "next_match" and team:
-            return nba_next_game(team)
-        return "Pour le basket, donne-moi l’équipe (ex : Los Angeles Lakers) et je te donne le prochain match."
+            return warm_prefix(profile) + nba_next_game(team)
+        return warm_prefix(profile) + "Pour le basket, donne-moi l’équipe (ex: Los Angeles Lakers)."
 
-    # MÉTÉO (placeholder)
-    if sport == "weather":
-        return "Pour la météo, donne-moi la ville et le jour (ex : Paris demain)."
+    # 4) Carte vitale / Voyage Algérie (lecture profil)
+    if "carte vitale" in text:
+        cv = (profile.get("carte_vitale") or {})
+        if not cv: return warm_prefix(profile) + "Je n’ai pas trouvé l’info carte vitale."
+        st, note = cv.get("statut", "inconnu"), cv.get("note", "")
+        return warm_prefix(profile) + f"Carte vitale : {st}" + (f" – {note}" if note else "")
 
-    # Fallback → GPT compagnon
-    return generate_gpt_response(user_msg, data_json)
+    if "algérie" in text or "algerie" in text or "voyage" in text:
+        trip = (profile.get("voyage_algerie") or {})
+        if not trip: return warm_prefix(profile) + "Je n’ai pas trouvé d’infos sur le voyage en Algérie."
+        date = trip.get("date", "date à confirmer"); ville = trip.get("ville", "")
+        return warm_prefix(profile) + f"Voyage en Algérie : {(ville + ' – ') if ville else ''}{date}"
+
+    # 5) Fallback GPT
+    return warm_prefix(profile) + generate_gpt_response(user_msg, profile)
