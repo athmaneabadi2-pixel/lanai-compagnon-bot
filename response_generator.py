@@ -158,3 +158,39 @@ def generate_gpt_response(user_msg: str, data_json: dict) -> str:
         max_tokens=300,
     )
     return resp.choices[0].message.content.strip()
+# --- ROUTING ---
+def generate_response(intent: dict, user_msg: str, data_json: dict) -> str:
+    text = user_msg.lower()
+
+    # Date du jour (évite que GPT invente)
+    if "quelle date" in text or "quel jour" in text or "date d'aujourd" in text:
+        return f"Aujourd’hui, nous sommes le {today_paris()}."
+
+    sport = (intent.get("intent") or "").lower()
+    action = (intent.get("action") or "").lower()
+    team = intent.get("team")
+
+    # Heuristique : si pas d'action mais on parle de "match" => next_match
+    if not action and any(k in text for k in ["prochain", "match", "jouent quand", "jouent quand ?", "jouent?"]):
+        action = "next_match"
+
+    # FOOT
+    if sport == "football":
+        if action == "next_match" and team:
+            return foot_next_match(team)
+        # Ici tu pourras ajouter score, calendar, etc.
+        return "Tu veux parler de foot ? Dis-moi l’équipe (ex : RC Lens, PSG, OM) et ce que tu veux (prochain match, score)."
+
+    # BASKET
+    if sport == "basketball":
+        if action == "next_match" and team:
+            return nba_next_game(team)
+        return "Pour le basket, dis-moi l’équipe (ex : Los Angeles Lakers) et je te donne le prochain match."
+
+    # MÉTÉO (placeholder pour plus tard)
+    if sport == "weather":
+        return "Pour la météo, dis-moi la ville et le jour (ex : Paris demain)."
+
+    # Fallback → GPT compagnon
+    return generate_gpt_response(user_msg, data_json)
+
