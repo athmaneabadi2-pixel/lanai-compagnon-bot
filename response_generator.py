@@ -13,7 +13,7 @@ def _env(name: str):
 OPENAI_API_KEY = _env("OPENAI_API_KEY")
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
-# Même clé API‑Sports pour tous les sports : on lit tes 2 noms d'env
+# Clé API‑Sports (même clé pour foot & basket). On lit tes noms d'env habituels.
 API_SPORTS_KEY = _env("API_FOOT_KEY") or _env("API_BASKET_KEY") or _env("API_SPORTS_KEY")
 OPENWEATHER_API_KEY = _env("OPENWEATHER_API_KEY")
 TZ = ZoneInfo("Europe/Paris")
@@ -70,7 +70,7 @@ FOOT_BASE = f"https://{FOOT_HOST}"
 def foot_headers():
     return {"x-apisports-key": API_SPORTS_KEY or ""}
 
-# corrections de noms (pour éviter PSGC / variations)
+# corrections de noms (évite PSGC & variations)
 TEAM_NAME_FIX = {
     "psg": "Paris Saint Germain",
     "paris sg": "Paris Saint Germain",
@@ -129,38 +129,79 @@ def _current_football_season():
 def foot_next_match(team_name: str, season: int | None = None) -> str:
     if not API_SPORTS_KEY:
         return "Clé sport manquante (API_FOOT_KEY / API_BASKET_KEY)."
-    season = season or _current_football_season()
 
+    # 1) trouver l’équipe
     team_id, canon = foot_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l'équipe « {team_name} »."
 
+    # 2) ESSAI 1 — prochain match SANS 'season' (plus fiable autour des changements de saison)
     try:
-        r = requests.get(f"{FOOT_BASE}/fixtures", headers=foot_headers(),
-                         params={"team": team_id, "season": season, "next": 1, "timezone": "Europe/Paris"},
-                         timeout=12)
+        print(f"[Lanai][FOOT] next fixtures: team_id={team_id}")
+        r = requests.get(
+            f"{FOOT_BASE}/fixtures",
+            headers=foot_headers(),
+            params={"team": team_id, "next": 1, "timezone": "Europe/Paris"},
+            timeout=12,
+        )
     except Exception as e:
         print("[Lanai][FOOT] /fixtures exception:", repr(e))
         return "Le service foot ne répond pas."
 
-    if r.status_code != 200:
-        print("[Lanai][FOOT] /fixtures HTTP", r.status_code, r.text[:200])
-        return "Impossible de récupérer le prochain match."
+    resp = (r.json() or {}).get("response", []) if r.status_code == 200 else []
 
-    resp = (r.json() or {}).get("response", [])
+    # 3) ESSAI 2 — avec 'season' si ESSAI 1 vide
     if not resp:
-        return f"Pas de prochain match trouvé pour {canon}."
+        s = season or _current_football_season()
+        try:
+            print(f"[Lanai][FOOT] next fixtures with season={s}")
+            r2 = requests.get(
+                f"{FOOT_BASE}/fixtures",
+                headers=foot_headers(),
+                params={"team": team_id, "season": s, "next": 1, "timezone": "Europe/Paris"},
+                timeout=12,
+            )
+            resp = (r2.json() or {}).get("response", []) if r2.status_code == 200 else []
+        except Exception as e:
+            print("[Lanai][FOOT] /fixtures(season) exception:", repr(e))
 
-    m = resp[0]
-    date_iso = m["fixture"]["date"]
+    if resp:
+        m = resp[0]
+        date_iso = m["fixture"]["date"]
+        try:
+            dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
+            date_str = dt.strftime("%d/%m/%Y à %H:%M")
+        except Exception:
+            date_str = date_iso[:10]
+        home = m["teams"]["home"]["name"]
+        away = m["teams"]["away"]["name"]
+        return f"Prochain match de {canon} : {home} vs {away}, le {date_str}."
+
+    # 4) FALLBACK — dernier match joué
     try:
-        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
-        date_str = dt.strftime("%d/%m/%Y à %H:%M")
-    except Exception:
-        date_str = date_iso[:10]
-    home = m["teams"]["home"]["name"]
-    away = m["teams"]["away"]["name"]
-    return f"Prochain match de {canon} : {home} vs {away}, le {date_str}."
+        print(f"[Lanai][FOOT] previous fixtures (fallback)")
+        r3 = requests.get(
+            f"{FOOT_BASE}/fixtures",
+            headers=foot_headers(),
+            params={"team": team_id, "last": 1, "timezone": "Europe/Paris"},
+            timeout=12,
+        )
+        prev = (r3.json() or {}).get("response", []) if r3.status_code == 200 else []
+        if prev:
+            m = prev[0]
+            date_iso = m["fixture"]["date"]
+            try:
+                dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
+                date_str = dt.strftime("%d/%m/%Y")
+            except Exception:
+                date_str = date_iso[:10]
+            home = m["teams"]["home"]["name"]; away = m["teams"]["away"]["name"]
+            gs = m["goals"]["home"]; ga = m["goals"]["away"]
+            return f"Aucun prochain match programmé pour {canon}. Dernier : {home} {gs}-{ga} {away} le {date_str}."
+    except Exception as e:
+        print("[Lanai][FOOT] /fixtures(last) exception:", repr(e))
+
+    return f"Aucun match disponible pour {canon} pour l’instant."
 
 # ========= NBA (API‑Sports direct) =========
 NBA_HOST = "v1.basketball.api-sports.io"
@@ -192,39 +233,54 @@ def nba_search_team(team_query: str):
 def nba_next_game(team_name: str, season: int | None = None) -> str:
     if not API_SPORTS_KEY:
         return "Clé sport manquante (API_FOOT_KEY / API_BASKET_KEY)."
-    # Saison NBA par défaut : année en cours
-    season = season or datetime.now(TZ).year
+    season = season or datetime.now(TZ).year  # valeur par défaut
 
     team_id, canon = nba_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l’équipe NBA « {team_name} »."
 
+    # Prochain match
     try:
+        print(f"[Lanai][NBA] next games: team_id={team_id}")
         r = requests.get(f"{NBA_BASE}/games", headers=nba_headers(),
-                         params={"season": season, "team": team_id, "next": 1, "timezone": "Europe/Paris"},
+                         params={"team": team_id, "next": 1, "timezone": "Europe/Paris"},
                          timeout=12)
+        resp = (r.json() or {}).get("response", []) if r.status_code == 200 else []
     except Exception as e:
         print("[Lanai][NBA] /games exception:", repr(e))
-        return "Le service NBA ne répond pas."
+        resp = []
 
-    if r.status_code != 200:
-        print("[Lanai][NBA] /games HTTP", r.status_code, r.text[:200])
-        return "Impossible de récupérer le prochain match NBA."
+    if resp:
+        g = resp[0]
+        try:
+            dt = datetime.fromisoformat(g["date"]["start"].replace("Z", "+00:00")).astimezone(TZ)
+            date_str = dt.strftime("%d/%m/%Y à %H:%M")
+        except Exception:
+            date_str = g["date"]["start"][:10]
+        home = g["teams"]["home"]["name"]; away = g["teams"]["away"]["name"]
+        return f"Prochain match des {canon} : {home} vs {away}, le {date_str}."
 
-    resp = (r.json() or {}).get("response", [])
-    if not resp:
-        return f"Pas de prochain match trouvé pour {canon}."
-
-    g = resp[0]
-    date_iso = g["date"]["start"]
+    # Dernier match (fallback)
     try:
-        dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")).astimezone(TZ)
-        date_str = dt.strftime("%d/%m/%Y à %H:%M")
-    except Exception:
-        date_str = date_iso[:10]
-    home = g["teams"]["home"]["name"]
-    away = g["teams"]["away"]["name"]
-    return f"Prochain match des {canon} : {home} vs {away}, le {date_str}."
+        print(f"[Lanai][NBA] previous games (fallback)")
+        r2 = requests.get(f"{NBA_BASE}/games", headers=nba_headers(),
+                          params={"team": team_id, "last": 1, "timezone": "Europe/Paris"},
+                          timeout=12)
+        prev = (r2.json() or {}).get("response", []) if r2.status_code == 200 else []
+        if prev:
+            g = prev[0]
+            try:
+                dt = datetime.fromisoformat(g["date"]["start"].replace("Z", "+00:00")).astimezone(TZ)
+                date_str = dt.strftime("%d/%m/%Y")
+            except Exception:
+                date_str = g["date"]["start"][:10]
+            home = g["teams"]["home"]["name"]; away = g["teams"]["away"]["name"]
+            hs = g["scores"]["home"]["points"]; vs = g["scores"]["visitors"]["points"]
+            return f"Aucun prochain match programmé pour {canon}. Dernier : {home} {hs}-{vs} {away} le {date_str}."
+    except Exception as e:
+        print("[Lanai][NBA] /games(last) exception:", repr(e))
+
+    return f"Aucun match disponible pour {canon} pour l’instant."
 
 # ========= GPT compagnon (fallback) =========
 def generate_gpt_response(user_msg: str, profile: dict) -> str:
