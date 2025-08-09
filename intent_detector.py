@@ -46,5 +46,5 @@ Message :
     try:
         return json.loads(content)
     except Exception:
+        # Sécurité : si la réponse n'est pas un JSON valide
         return {"intent": "general", "team": None, "player": None, "action": None, "date": None}
-
