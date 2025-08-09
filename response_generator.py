@@ -13,9 +13,8 @@ def _env(name: str):
 OPENAI_API_KEY = _env("OPENAI_API_KEY")
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
-# Même clé API-Sports pour tous les sports : on lit tes 2 noms d'env
+# Même clé API‑Sports pour tous les sports : on lit tes 2 noms d'env
 API_SPORTS_KEY = _env("API_FOOT_KEY") or _env("API_BASKET_KEY") or _env("API_SPORTS_KEY")
-
 OPENWEATHER_API_KEY = _env("OPENWEATHER_API_KEY")
 TZ = ZoneInfo("Europe/Paris")
 
@@ -27,6 +26,12 @@ def _slug(txt: str) -> str:
     txt = unicodedata.normalize("NFKD", txt.lower().strip())
     txt = "".join(c for c in txt if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", txt)
+
+def _norm(s: str) -> str:
+    """normalise sans accents/espaces/ponctuation pour comparer les noms d'équipes"""
+    if not s: return ""
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", s.lower())
 
 def today_fr() -> str:
     now = datetime.now(TZ)
@@ -65,11 +70,12 @@ FOOT_BASE = f"https://{FOOT_HOST}"
 def foot_headers():
     return {"x-apisports-key": API_SPORTS_KEY or ""}
 
-# corrige la recherche PSG/Lens
+# corrections de noms (pour éviter PSGC / variations)
 TEAM_NAME_FIX = {
-    "psg": "Paris Saint-Germain",
-    "paris sg": "Paris Saint-Germain",
-    "paris saint germain": "Paris Saint-Germain",
+    "psg": "Paris Saint Germain",
+    "paris sg": "Paris Saint Germain",
+    "paris saint-germain": "Paris Saint Germain",
+    "paris saint germain": "Paris Saint Germain",
     "rc lens": "Lens",
     "rcl": "Lens",
     "lens": "Lens",
@@ -78,42 +84,73 @@ TEAM_NAME_FIX = {
 def foot_search_team(team_query: str):
     if not API_SPORTS_KEY:
         return (None, None)
+
     fixed = TEAM_NAME_FIX.get((team_query or "").lower().strip(), team_query)
+    qn = _norm(fixed)
+
     try:
         r = requests.get(f"{FOOT_BASE}/teams", headers=foot_headers(),
                          params={"search": fixed}, timeout=12)
-        if r.status_code != 200:
-            return (None, None)
-        items = r.json().get("response", [])
-        if not items:
-            return (None, None)
-        # priorité au nom strict
-        for it in items:
-            name = it["team"]["name"]
-            if name.lower() == fixed.lower():
-                return it["team"]["id"], name
-        it = items[0]
-        return it["team"]["id"], it["team"]["name"]
-    except Exception:
+    except Exception as e:
+        print("[Lanai][FOOT] /teams exception:", repr(e))
         return (None, None)
 
-def foot_next_match(team_name: str, season: int = 2025) -> str:
+    if r.status_code != 200:
+        print("[Lanai][FOOT] /teams HTTP", r.status_code, r.text[:200])
+        return (None, None)
+
+    items = (r.json() or {}).get("response", [])
+    if not items:
+        print("[Lanai][FOOT] /teams empty for", fixed)
+        return (None, None)
+
+    # 1) égalité stricte normalisée
+    for it in items:
+        name = it["team"]["name"]
+        if _norm(name) == qn:
+            return it["team"]["id"], name
+
+    # 2) contient tous les mots (paris & germain, etc.)
+    words = [w for w in re.split(r"\s+", fixed.lower()) if w]
+    for it in items:
+        name = it["team"]["name"].lower()
+        if all(w in name for w in words):
+            return it["team"]["id"], it["team"]["name"]
+
+    # 3) fallback: premier
+    it = items[0]
+    return it["team"]["id"], it["team"]["name"]
+
+def _current_football_season():
+    now = datetime.now(TZ)
+    # Saison européenne ~ juillet -> juin
+    return now.year if now.month >= 7 else now.year - 1
+
+def foot_next_match(team_name: str, season: int | None = None) -> str:
     if not API_SPORTS_KEY:
         return "Clé sport manquante (API_FOOT_KEY / API_BASKET_KEY)."
+    season = season or _current_football_season()
+
     team_id, canon = foot_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l'équipe « {team_name} »."
+
     try:
         r = requests.get(f"{FOOT_BASE}/fixtures", headers=foot_headers(),
                          params={"team": team_id, "season": season, "next": 1, "timezone": "Europe/Paris"},
                          timeout=12)
-    except Exception:
+    except Exception as e:
+        print("[Lanai][FOOT] /fixtures exception:", repr(e))
         return "Le service foot ne répond pas."
+
     if r.status_code != 200:
+        print("[Lanai][FOOT] /fixtures HTTP", r.status_code, r.text[:200])
         return "Impossible de récupérer le prochain match."
-    resp = r.json().get("response", [])
+
+    resp = (r.json() or {}).get("response", [])
     if not resp:
         return f"Pas de prochain match trouvé pour {canon}."
+
     m = resp[0]
     date_iso = m["fixture"]["date"]
     try:
@@ -138,33 +175,46 @@ def nba_search_team(team_query: str):
     try:
         r = requests.get(f"{NBA_BASE}/teams", headers=nba_headers(),
                          params={"search": team_query}, timeout=12)
-        if r.status_code != 200:
-            return (None, None)
-        resp = r.json().get("response", [])
-        if not resp:
-            return (None, None)
-        t = resp[0]
-        return t["id"], t["name"]
-    except Exception:
+    except Exception as e:
+        print("[Lanai][NBA] /teams exception:", repr(e))
         return (None, None)
 
-def nba_next_game(team_name: str, season: int = 2024) -> str:
+    if r.status_code != 200:
+        print("[Lanai][NBA] /teams HTTP", r.status_code, r.text[:200])
+        return (None, None)
+
+    resp = (r.json() or {}).get("response", [])
+    if not resp:
+        return (None, None)
+    t = resp[0]
+    return t["id"], t["name"]
+
+def nba_next_game(team_name: str, season: int | None = None) -> str:
     if not API_SPORTS_KEY:
         return "Clé sport manquante (API_FOOT_KEY / API_BASKET_KEY)."
+    # Saison NBA par défaut : année en cours
+    season = season or datetime.now(TZ).year
+
     team_id, canon = nba_search_team(team_name)
     if not team_id:
         return f"Désolé, je ne trouve pas l’équipe NBA « {team_name} »."
+
     try:
         r = requests.get(f"{NBA_BASE}/games", headers=nba_headers(),
                          params={"season": season, "team": team_id, "next": 1, "timezone": "Europe/Paris"},
                          timeout=12)
-    except Exception:
+    except Exception as e:
+        print("[Lanai][NBA] /games exception:", repr(e))
         return "Le service NBA ne répond pas."
+
     if r.status_code != 200:
+        print("[Lanai][NBA] /games HTTP", r.status_code, r.text[:200])
         return "Impossible de récupérer le prochain match NBA."
-    resp = r.json().get("response", [])
+
+    resp = (r.json() or {}).get("response", [])
     if not resp:
         return f"Pas de prochain match trouvé pour {canon}."
+
     g = resp[0]
     date_iso = g["date"]["start"]
     try:
