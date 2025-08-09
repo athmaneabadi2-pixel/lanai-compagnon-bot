@@ -14,7 +14,7 @@ JSON attendu :
   "intent": "football" | "basketball" | "weather" | "general",
   "team": string | null,
   "player": string | null,
-  "action": "score" | "next_match" | "calendar" | "ranking" | "injury_status" | "current_weather" | "news" | null,
+  "action": "score" | "next_match" | "calendar" | "ranking" | "injury_status" | "current_weather" | null,
   "date": string | null
 }}
 
@@ -25,8 +25,8 @@ Exemples :
 {{"intent":"football","team":"RC Lens","player":null,"action":"score","date":"hier"}}
 - "Le calendrier de Lyon" =>
 {{"intent":"football","team":"Lyon","player":null,"action":"calendar","date":null}}
-- "Mbappé est blessé ?" =>
-{{"intent":"football","team":null,"player":"Mbappé","action":"injury_status","date":null}}
+- "Les Lakers jouent quand ?" =>
+{{"intent":"basketball","team":"Los Angeles Lakers","player":null,"action":"next_match","date":null}}
 - "Météo à Paris demain" =>
 {{"intent":"weather","team":null,"player":null,"action":"current_weather","date":"demain"}}
 - "Salut ça va ?" =>
@@ -46,5 +46,4 @@ Message :
     try:
         return json.loads(content)
     except Exception:
-        # Sécurité : si la réponse n'est pas un JSON valide
         return {"intent": "general", "team": None, "player": None, "action": None, "date": None}
