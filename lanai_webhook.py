@@ -9,7 +9,7 @@ from response_generator import generate_response
 
 app = Flask(__name__)
 
-# Charger la "mémoire" de Mohamed (optionnel)
+# Mémoire Mohamed (facultatif)
 try:
     with open("memoire_mohamed_lanai.json", "r", encoding="utf-8") as f:
         data_mohamed = json.load(f)
@@ -20,11 +20,11 @@ except FileNotFoundError:
 def webhook():
     user_msg = request.form.get("Body", "")
     intent = detect_intent(user_msg)
-    print("INTENT DÉTECTÉ:", intent)  # visible dans les logs Render
+    print("INTENT DÉTECTÉ:", intent)
     try:
         reply = generate_response(intent, user_msg, data_mohamed)
     except Exception as e:
-        print("ERREUR generate_response:", e)
+        print("ERREUR generate_response:", repr(e))
         reply = "Désolé, une erreur technique empêche Lanai de répondre."
     resp = MessagingResponse()
     resp.message(reply)
