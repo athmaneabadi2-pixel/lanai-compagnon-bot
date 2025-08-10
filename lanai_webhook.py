@@ -45,7 +45,7 @@ except Exception as e:
 handle_message = _router_handle
 
 # --------- HEALTH & ADMIN ---------
-@app.route("/", methods=["GET", "HEAD"])   # <-- FIX: pas de @app.head()
+@app.route("/", methods=["GET", "HEAD"])
 def root():
     return "Lanai OK", 200
 
@@ -95,8 +95,7 @@ def whatsapp_webhook():
     app.logger.info(f"[Lanai] inbound='{incoming}' -> reply_sent={sent}")
     return ("", 204)
 
-# --------- LOG AU DÉMARRAGE ---------
-@app.before_first_request
+# --------- LOG AU DÉMARRAGE (sans décorateur Flask 3) ---------
 def _boot_log():
     try:
         from config import (
@@ -114,6 +113,9 @@ def _boot_log():
             print("[Lanai][WARN] Boot errors:", BOOT_ERRORS)
     except Exception as e:
         print("[Lanai][WARN] Boot log error:", repr(e))
+
+# Appelle le boot log immédiatement au chargement du module
+_boot_log()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
