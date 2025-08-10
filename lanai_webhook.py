@@ -1,93 +1,66 @@
-# lanai_webhook.py
 import os
-import sys
 import datetime
 import pytz
 from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
 
-# --- Fix PYTHONPATH (Render/Gunicorn) ---
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-for p in [
-    BASE_DIR,                              # racine du repo
-    os.path.join(BASE_DIR, "lanai_core"),  # modules lanai_core/*
-    os.path.join(BASE_DIR, "services"),    # modules services/*
-]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
-# --- Imports internes selon TA structure ---
 from config import APP_TIMEZONE
-from lanai_core.router import route
+from lanai_core.router import route  # tu gardes ton routeur actuel
 from lanai_core.memory import MEMORY, get_default_city
-from services.weather_service import get_forecast
+from lanai_core.memory_qa import answer_memory_query
+from services.weather_service import weather_text  # ta fonction existante qui marche
 from services.sports_service import sports_dispatch
 from services.openai_service import reply_gpt
 
 app = Flask(__name__)
-TZ = pytz.timezone(APP_TIMEZONE)
 
-@app.get("/health")
-def health():
-    return {"ok": True}
+@app.route("/whatsapp", methods=["POST"])
+def handle_whatsapp():
+    if request.method != "POST":
+        abort(405)
 
-@app.post("/whatsapp")
-def whatsapp_webhook():
     body = (request.form.get("Body") or "").strip()
-    if not body:
-        abort(400)
-
-    args = route(body)
-    intent = args.get("intent", "GPT")
 
     try:
-        if intent == "WEATHER":
-            text = get_forecast(
-                args.get("city"),
-                args.get("when", "aujourdhui"),
-                get_default_city(MEMORY),
+        r = route(body)
+        intent = r.get("intent")
+
+        if intent == "METEO":
+            when = r.get("when")
+            city = r.get("city") or get_default_city(MEMORY)
+            text = weather_text(when=when, city=city, default_city=get_default_city(MEMORY))
+
+        elif intent and intent.startswith("SPORT"):
+            text = sports_dispatch(
+                intent=intent,
+                sport=r.get("sport"),
+                team=r.get("team"),
+                date_hint=r.get("date_hint"),
             )
 
         elif intent == "DATE":
-            now = datetime.datetime.now(TZ)
-            text = now.strftime("Nous sommes le %d/%m/%Y, il est %H:%M.")
+            tz = pytz.timezone(APP_TIMEZONE)
+            now = datetime.datetime.now(tz)
+            text = f"Nous sommes le {now.strftime('%d/%m/%Y')}, il est {now.strftime('%H:%M')}."
 
         elif intent == "MEMORY":
-            q = (args.get("query") or "").lower()
-            prof = MEMORY.get("profile", {})
-            if "enfant" in q and MEMORY.get("children"):
-                text = "Tes enfants: " + ", ".join(MEMORY["children"])
-            elif any(w in q for w in ["femme", "épouse", "epouse"]) and prof.get("spouse"):
-                text = f"Ta femme: {prof['spouse']}."
-            else:
-                souvenirs = MEMORY.get("souvenirs") or prof.get("souvenirs") or []
-                text = (
-                    f"Souvenir: {souvenirs[0]}"
-                    if souvenirs
-                    else "Je garde tes souvenirs en tête. Tu veux m’en raconter un ?"
-                )
-
-        elif intent.startswith("SPORT_"):
-            text = sports_dispatch(
-                intent,
-                args.get("sport"),
-                args.get("team"),
-                args.get("date_hint"),
-            )
+            ans = answer_memory_query(body, MEMORY)
+            text = ans or "Tu veux me raconter un souvenir ? 😊"
 
         elif intent == "SMALLTALK":
-            text = "Je suis là si tu veux parler. 💬"
+            text = "Bonjour 😊 Je suis là si tu veux parler."
 
         else:
+            # fallback GPT
             text = reply_gpt(body, MEMORY)
 
     except Exception as e:
         print(f"[Lanai] Error: {e.__class__.__name__}: {e}")
-        text = f"Désolé, j’ai eu un souci technique. ({type(e).__name__})"
+        text = "Désolé, j’ai eu un souci technique."
 
     resp = MessagingResponse()
     resp.message(text)
     return str(resp)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
