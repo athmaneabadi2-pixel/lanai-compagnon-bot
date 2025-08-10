@@ -1,45 +1,37 @@
-import re
 from unidecode import unidecode
+from .sports_nlp import detect_sport_intent
 
 def _norm(s: str) -> str:
     return unidecode((s or "").lower().strip())
 
-_CITY_RE = re.compile(r"(?:\b(a|à|sur|pour)\s+)([a-zA-ZÀ-ÖØ-öø-ÿ\-\s']+)$", re.IGNORECASE)
-
-def _extract_city(text: str) -> str | None:
-    m = _CITY_RE.search(text.strip())
-    return m.group(2).strip().title() if m else None
-
-def _extract_team(text: str) -> str | None:
-    t = _norm(text)
-    if "psg" in t or "paris saint" in t:
-        return "PSG"
-    return None
-
 def route(message: str) -> dict:
     t = _norm(message)
 
-    # 1) Prochain match (spécifique)
-    if ("prochain" in t and "match" in t) or "prochain match" in t:
-        return {"intent": "NEXT_MATCH", "team": _extract_team(message) or "PSG"}
+    # 0) SPORT (spécifique, en premier)
+    sport = detect_sport_intent(message)
+    if sport:
+        return sport
 
-    # 2) Météo (aujourd’hui/demain + ville optionnelle)
+    # 1) Météo
     if "meteo" in t or "météo" in message.lower():
         when = "demain" if "demain" in t else "aujourdhui"
-        city = _extract_city(message)
+        # ville si présente en fin de phrase après "à"
+        city = None
+        if " a " in f" {t} " or " à " in message.lower():
+            part = message.split("à")[-1].strip()
+            if part: city = part.title()
         return {"intent": "WEATHER", "when": when, "city": city}
 
-    # 3) Date / heure
+    # 2) Date/heure
     if "date" in t or "aujourdhui" in t or "aujourd" in t or "heure" in t:
         return {"intent": "DATE"}
 
-    # 4) Mémoire/souvenirs/famille
+    # 3) Mémoire
     if any(w in t for w in ["souvenir", "souvenirs", "memoire", "mémoire", "enfants", "enfant", "femme", "épouse"]):
         return {"intent": "MEMORY", "query": message}
 
-    # 5) Small talk
+    # 4) Small talk
     if any(w in t for w in ["bonjour", "salut", "ca va", "ça va"]):
         return {"intent": "SMALLTALK"}
 
-    # 6) Fallback GPT
     return {"intent": "GPT"}
