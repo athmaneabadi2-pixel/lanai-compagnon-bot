@@ -4,7 +4,6 @@ from unidecode import unidecode
 def _norm(s: str) -> str:
     return unidecode((s or "").lower().strip())
 
-# ex: "Météo de demain à Loffre" → Loffre
 _CITY_RE = re.compile(r"(?:\b(a|à|sur|pour)\s+)([a-zA-ZÀ-ÖØ-öø-ÿ\-\s']+)$", re.IGNORECASE)
 
 def _extract_city(text: str) -> str | None:
@@ -20,11 +19,11 @@ def _extract_team(text: str) -> str | None:
 def route(message: str) -> dict:
     t = _norm(message)
 
-    # 1) Prochain match (ordre d'abord car très spécifique)
+    # 1) Prochain match (spécifique)
     if ("prochain" in t and "match" in t) or "prochain match" in t:
         return {"intent": "NEXT_MATCH", "team": _extract_team(message) or "PSG"}
 
-    # 2) Météo (aujourd'hui / demain / ville)
+    # 2) Météo (aujourd’hui/demain + ville optionnelle)
     if "meteo" in t or "météo" in message.lower():
         when = "demain" if "demain" in t else "aujourdhui"
         city = _extract_city(message)
@@ -34,9 +33,9 @@ def route(message: str) -> dict:
     if "date" in t or "aujourdhui" in t or "aujourd" in t or "heure" in t:
         return {"intent": "DATE"}
 
-    # 4) Souvenirs / mémoire
+    # 4) Mémoire/souvenirs/famille
     if any(w in t for w in ["souvenir", "souvenirs", "memoire", "mémoire", "enfants", "enfant", "femme", "épouse"]):
-        return {"intent": "MEMORY"}
+        return {"intent": "MEMORY", "query": message}
 
     # 5) Small talk
     if any(w in t for w in ["bonjour", "salut", "ca va", "ça va"]):
