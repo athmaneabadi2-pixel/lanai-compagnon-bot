@@ -1,43 +1,36 @@
 # lanai_webhook.py
 import os
-import sys
 import traceback
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# --------- IMPORTS AVEC SECURITE (debug clair au boot) ---------
+# --------- IMPORTS AVEC SÉCURITÉ ---------
 BOOT_ERRORS = {}
 
 def _record_boot_error(name: str, err: Exception):
     BOOT_ERRORS[name] = f"{type(err).__name__}: {err}"
     traceback.print_exc()
 
-# services.twilio_service
 try:
     from services.twilio_service import send_whatsapp_safe
     TWILIO_OK = True
 except Exception as e:
     _record_boot_error("services.twilio_service", e)
     TWILIO_OK = False
-
     def send_whatsapp_safe(_text: str) -> bool:
-        # fallback: on n'envoie pas, mais on ne plante pas
         print("[Lanai][WARN] Twilio non chargé, envoi ignoré.")
         return False
 
-# lanai_core.router
 try:
     from lanai_core.router import handle_message as _router_handle
     ROUTER_OK = True
 except Exception as e:
     _record_boot_error("lanai_core.router", e)
     ROUTER_OK = False
-
-    # Fallback simple pour ne pas planter si router a un souci
     def _router_handle(text: str) -> str:
         t = (text or "").lower()
-        if any(k in t for k in ["bonjour", "salut", "hello", "hi"]):
+        if any(k in t for k in ["bonjour","salut","hello","hi"]):
             return "Salut Mohamed 😊 Ça va aujourd’hui ?"
         if "météo" in t or "meteo" in t:
             return "Je regarde la météo et je te dis bientôt 🙂"
@@ -49,18 +42,15 @@ except Exception as e:
             return "Une caresse pour Lana 🐱"
         return "Bien reçu. Je suis là si tu veux parler."
 
-handle_message = _router_handle  # alias local
-
+handle_message = _router_handle
 
 # --------- HEALTH & ADMIN ---------
-@app.get("/")
-@app.head("/")
+@app.route("/", methods=["GET", "HEAD"])   # <-- FIX: pas de @app.head()
 def root():
     return "Lanai OK", 200
 
 @app.get("/admin/health")
 def admin_health():
-    # petit état de santé + erreurs d'import au boot s'il y en a
     from config import (
         TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
         OPENWEATHER_API_KEY, OPENAI_API_KEY,
@@ -82,7 +72,6 @@ def admin_health():
         }
     }), 200
 
-
 # --------- WEBHOOK TWILIO (REST) ---------
 @app.post("/whatsapp")
 def whatsapp_webhook():
@@ -93,23 +82,20 @@ def whatsapp_webhook():
 
     try:
         reply = handle_message(incoming)
-    except Exception as e:
-        # on ne laisse JAMAIS tomber le webhook
+    except Exception:
         traceback.print_exc()
         reply = "Je n’ai pas tout compris, mais je suis là pour toi."
 
     sent = False
     try:
         sent = send_whatsapp_safe(reply)  # True si envoyé (quota ok), False sinon
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
 
     app.logger.info(f"[Lanai] inbound='{incoming}' -> reply_sent={sent}")
-    # Twilio n’attend pas de corps si on utilise l’API REST, juste un 2xx
     return ("", 204)
 
-
-# --------- LOG AU DEMARRAGE ---------
+# --------- LOG AU DÉMARRAGE ---------
 @app.before_first_request
 def _boot_log():
     try:
@@ -129,8 +115,6 @@ def _boot_log():
     except Exception as e:
         print("[Lanai][WARN] Boot log error:", repr(e))
 
-
 if __name__ == "__main__":
-    # Démarrage local (Render injecte $PORT en prod)
     port = int(os.environ.get("PORT", "10000"))
     app.run(host="0.0.0.0", port=port, debug=False)
