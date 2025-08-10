@@ -2,7 +2,10 @@ import os
 from openai import OpenAI
 from config import OPENAI_API_KEY
 
+# ❌ NE PAS passer proxies=...
+# ✅ Version correcte pour le SDK v1
 client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 SYSTEM = "Tu es Lanai, compagnon bienveillant. Langage simple, phrases courtes. Toujours chaleureux."
 
