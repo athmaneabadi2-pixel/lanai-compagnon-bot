@@ -1,36 +1,25 @@
-# services/openai_service.py
-import os
 from openai import OpenAI
+from config import OPENAI_API_KEY
 
-_CLIENT = None
-def _client():
-    global _CLIENT
-    if _CLIENT is None:
-        _CLIENT = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    return _CLIENT
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-def polish_for_mohamed(profile, raw_text):
-    try:
-        sys = _persona(profile)
-        user = f"Reformule ce texte factuel en 1–2 phrases chaleureuses: {raw_text}"
-        r = _client().chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"system","content":sys},{"role":"user","content":user}],
-            temperature=0.5, max_tokens=120
-        )
-        return r.choices[0].message.content.strip()
-    except Exception:
-        return raw_text
+SYSTEM = (
+    "Tu es Lanai, compagnon chaleureux pour Mohamed Djeziri (Parkinson). "
+    "Phrases courtes, simples. Pose parfois une petite question douce."
+)
 
-def smalltalk(profile, user_text):
-    try:
-        sys = _persona(profile)
-        r = _client().chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"system","content":sys},
-                      {"role":"user","content":f"Message reçu: {user_text}. Réponds en 1–2 phrases max, amical et simple."}],
-            temperature=0.6, max_tokens=120
-        )
-        return r.choices[0].message.content.strip()
-    except Exception:
-        return "Je suis là si tu veux parler. 💬"
+def reply_gpt(user_text: str, memory: dict) -> str:
+    profile = memory.get("profile", {})
+    spouse = profile.get("spouse", "Milouda")
+    pet = profile.get("pet", "Lana")
+    context = f"Contexte: épouse {spouse}, chat {pet}."
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": f"{context}\nMessage: {user_text}"}
+        ],
+        max_tokens=140,
+        temperature=0.3
+    )
+    return r.choices[0].message.content.strip()
