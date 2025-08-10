@@ -6,15 +6,21 @@ import pytz
 from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
 
-# ✅ important pour Render : assure le bon PYTHONPATH
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# --- Fix PYTHONPATH (Render/Gunicorn) ---
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+sys.path.insert(0, BASE_DIR)  # racine du repo
+sys.path.insert(0, os.path.join(BASE_DIR, "lanai_core"))
+sys.path.insert(0, os.path.join(BASE_DIR, "lanai_core", "services"))
 
+# --- Imports internes ---
 from config import APP_TIMEZONE
 from lanai_core.router import route
 from lanai_core.memory import MEMORY, get_default_city
-from lanai_core.services.weather_service import get_forecast
-from lanai_core.services.sports_service import sports_dispatch
-from lanai_core.services.openai_service import reply_gpt
+
+# Imports DIRECTS depuis services (on bypasse le namespace)
+from weather_service import get_forecast
+from sports_service import sports_dispatch
+from openai_service import reply_gpt
 
 app = Flask(__name__)
 TZ = pytz.timezone(APP_TIMEZONE)
@@ -74,7 +80,6 @@ def whatsapp_webhook():
             text = reply_gpt(body, MEMORY)
 
     except Exception as e:
-        # log simple côté Render
         print(f"[Lanai] Error: {e.__class__.__name__}: {e}")
         text = f"Désolé, j’ai eu un souci technique. ({type(e).__name__})"
 
