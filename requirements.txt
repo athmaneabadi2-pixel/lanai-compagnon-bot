@@ -3,5 +3,7 @@ gunicorn==22.0.0
 twilio==9.2.3
 requests==2.32.3
 pytz==2024.1
-openai==1.40.0         # tu peux l’enlever si tu ne l’utilises pas encore
-python-dotenv==1.0.1   # utile en local, OK aussi sur Render
+openai==1.40.0
+python-dotenv==1.0.1
+httpx==0.27.2
+httpcore==1.0.5
