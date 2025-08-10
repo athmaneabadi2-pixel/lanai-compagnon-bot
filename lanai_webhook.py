@@ -8,19 +8,21 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 # --- Fix PYTHONPATH (Render/Gunicorn) ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-sys.path.insert(0, BASE_DIR)  # racine du repo
-sys.path.insert(0, os.path.join(BASE_DIR, "lanai_core"))
-sys.path.insert(0, os.path.join(BASE_DIR, "lanai_core", "services"))
+for p in [
+    BASE_DIR,                              # racine du repo
+    os.path.join(BASE_DIR, "lanai_core"),  # modules lanai_core/*
+    os.path.join(BASE_DIR, "services"),    # modules services/*
+]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-# --- Imports internes ---
+# --- Imports internes selon TA structure ---
 from config import APP_TIMEZONE
 from lanai_core.router import route
 from lanai_core.memory import MEMORY, get_default_city
-
-# Imports DIRECTS depuis services (on bypasse le namespace)
-from weather_service import get_forecast
-from sports_service import sports_dispatch
-from openai_service import reply_gpt
+from services.weather_service import get_forecast
+from services.sports_service import sports_dispatch
+from services.openai_service import reply_gpt
 
 app = Flask(__name__)
 TZ = pytz.timezone(APP_TIMEZONE)
