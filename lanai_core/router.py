@@ -1,46 +1,46 @@
-from lanai_core.memory import load_profile
-from services.weather_service import weather_tomorrow_short
-from services.sports_service import (
-    nba_yesterday_summary, basket_europe_yesterday_summary,
-    football_yesterday_summary, matches_yesterday_combo,
-)
-from services.openai_service import polish_for_mohamed, smalltalk
+import re
+from unidecode import unidecode
 
-def handle_message(text: str) -> str:
-    t = (text or "").lower()
-    p = load_profile()
+def _norm(s: str) -> str:
+    return unidecode((s or "").lower().strip())
 
-    # Saluts / chit-chat simple → GPT
-    if any(k in t for k in ["ça va", "ca va", "merci", "bonjour", "salut", "hello", "hi"]):
-        return smalltalk(p, text)
+# ex: "Météo de demain à Loffre" → Loffre
+_CITY_RE = re.compile(r"(?:\b(a|à|sur|pour)\s+)([a-zA-ZÀ-ÖØ-öø-ÿ\-\s']+)$", re.IGNORECASE)
 
-    # Météo (factuel → polish GPT)
-    if "météo" in t or "meteo" in t:
-        raw = weather_tomorrow_short(p.get("Identité", {}).get("Ville", "Paris"))
-        return polish_for_mohamed(p, raw)
+def _extract_city(text: str) -> str | None:
+    m = _CITY_RE.search(text.strip())
+    return m.group(2).strip().title() if m else None
 
-    # Basket / Foot (factuel → polish GPT)
-    if "nba" in t:
-        return polish_for_mohamed(p, nba_yesterday_summary())
-    if any(k in t for k in ["basket france","basket fr","pro a","lnb","euroleague","eurocup","bcl"]):
-        return polish_for_mohamed(p, basket_europe_yesterday_summary())
+def _extract_team(text: str) -> str | None:
+    t = _norm(text)
+    if "psg" in t or "paris saint" in t:
+        return "PSG"
+    return None
 
-    if any(k in t for k in [
-        "foot","football","ligue 1","premier league","la liga","liga","serie a","bundesliga",
-        "champions league","ldc","europa","conference","france","algérie","algerie","maroc","morocco"
-    ]):
-        return polish_for_mohamed(p, football_yesterday_summary())
+def route(message: str) -> dict:
+    t = _norm(message)
 
-    if "match" in t:
-        return polish_for_mohamed(p, matches_yesterday_combo())
+    # 1) Prochain match (ordre d'abord car très spécifique)
+    if ("prochain" in t and "match" in t) or "prochain match" in t:
+        return {"intent": "NEXT_MATCH", "team": _extract_team(message) or "PSG"}
 
-    # Souvenir simple depuis la mémoire → polish optionnel
-    if "souvenir" in t:
-        sv = p.get("Souvenirs", {}).get("Fierté ou accomplissement") or "Un bon moment en famille."
-        return polish_for_mohamed(p, f"Souvenir: {sv}")
+    # 2) Météo (aujourd'hui / demain / ville)
+    if "meteo" in t or "météo" in message.lower():
+        when = "demain" if "demain" in t else "aujourdhui"
+        city = _extract_city(message)
+        return {"intent": "WEATHER", "when": when, "city": city}
 
-    if "lana" in t:
-        return smalltalk(p, "Parle de Lana avec douceur")
+    # 3) Date / heure
+    if "date" in t or "aujourdhui" in t or "aujourd" in t or "heure" in t:
+        return {"intent": "DATE"}
 
-    # Par défaut → GPT (petite réponse douce)
-    return smalltalk(p, text)
+    # 4) Souvenirs / mémoire
+    if any(w in t for w in ["souvenir", "souvenirs", "memoire", "mémoire", "enfants", "enfant", "femme", "épouse"]):
+        return {"intent": "MEMORY"}
+
+    # 5) Small talk
+    if any(w in t for w in ["bonjour", "salut", "ca va", "ça va"]):
+        return {"intent": "SMALLTALK"}
+
+    # 6) Fallback GPT
+    return {"intent": "GPT"}
