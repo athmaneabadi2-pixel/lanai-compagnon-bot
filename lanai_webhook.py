@@ -5,10 +5,10 @@ from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
 
 from config import APP_TIMEZONE
-from lanai_core.router import route  # tu gardes ton routeur actuel
+from lanai_core.router import route
 from lanai_core.memory import MEMORY, get_default_city
 from lanai_core.memory_qa import answer_memory_query
-from services.weather_service import weather_text  # ta fonction existante qui marche
+from services.weather_service import weather_text
 from services.sports_service import sports_dispatch
 from services.openai_service import reply_gpt
 
@@ -31,12 +31,7 @@ def handle_whatsapp():
             text = weather_text(when=when, city=city, default_city=get_default_city(MEMORY))
 
         elif intent and intent.startswith("SPORT"):
-            text = sports_dispatch(
-                intent=intent,
-                sport=r.get("sport"),
-                team=r.get("team"),
-                date_hint=r.get("date_hint"),
-            )
+            text = sports_dispatch(intent, r.get("team"))
 
         elif intent == "DATE":
             tz = pytz.timezone(APP_TIMEZONE)
