@@ -35,4 +35,4 @@ def route(message: str) -> dict:
     if any(w in t for w in ["bonjour", "salut", "ca va", "ça va"]):
         return {"intent": "SMALLTALK"}
 
-    return {"intent": "GPT"}
+    return {"intent": "FALLBACK"}
