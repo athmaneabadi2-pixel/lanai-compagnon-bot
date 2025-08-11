@@ -2,6 +2,12 @@ def answer_memory_query(user_text: str, memory: dict) -> str | None:
     t = (user_text or "").lower()
     profile = (memory or {}).get("profile", {})
 
+    if "petit" in t and "enfant" in t:
+        grandkids = profile.get("grandchildren") or []
+        if grandkids:
+            return "Tes petits-enfants : " + ", ".join(grandkids) + "."
+        return "Je n’ai pas cette information pour l’instant."
+
     if "enfant" in t or "fils" in t or "fille" in t:
         kids = profile.get("children") or []
         if kids:
@@ -15,6 +21,7 @@ def answer_memory_query(user_text: str, memory: dict) -> str | None:
         return f"Ton chat s’appelle {profile.get('pet', 'Lana')}."
 
     if "je m'appelle" in t or "mon nom" in t or "comment je m'appelle" in t:
-        return f"Tu t’appelles {profile.get('name', 'Mohamed Djeziri')}."
+        first_name = (profile.get("name", "Mohamed Djeziri") or "Mohamed").split()[0]
+        return f"Tu t’appelles {first_name}. C’est un joli prénom ! Comment ça va aujourd’hui ?"
 
     return None
