@@ -7,7 +7,7 @@ from config import APISPORTS_KEY, FOOT_BASE, APP_TIMEZONE
 H_FOOT = {"x-apisports-key": APISPORTS_KEY}
 
 def _fmt_dt_iso_to_local(iso_str: str) -> str:
-    # "2025-08-15T19:00:00+00:00" -> "15/08/2025 à 21:00" (selon Europe/Paris)
+    # "2025-08-15T19:00:00+00:00" -> "15/08/2025 à 21:00" (Europe/Paris)
     tz = pytz.timezone(APP_TIMEZONE)
     dt_utc = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
     dt_local = dt_utc.astimezone(tz)
@@ -20,6 +20,12 @@ def foot_search_team_id(name: str) -> int | None:
     r.raise_for_status()
     resp = r.json().get("response", [])
     if not resp:
+        if (name or "").strip().lower() == "psg":
+            r2 = requests.get(f"{FOOT_BASE}/teams", headers=H_FOOT, params={"search": "Paris SG"}, timeout=12)
+            r2.raise_for_status()
+            resp2 = r2.json().get("response", [])
+            if resp2:
+                return resp2[0]["team"]["id"]
         return None
     return resp[0]["team"]["id"]
 
@@ -36,7 +42,6 @@ def foot_last_match(team_id: int) -> dict | None:
     return arr[0] if arr else None
 
 def _fixtures_by_date(team_id: int, d: date) -> list:
-    # API-Sports permet "date=YYYY-MM-DD"
     r = requests.get(
         f"{FOOT_BASE}/fixtures",
         headers=H_FOOT,
@@ -51,10 +56,10 @@ def _render_fixture(fx: dict) -> str:
     when = _fmt_dt_iso_to_local(fx["fixture"]["date"])
     home = fx["teams"]["home"]["name"]
     away = fx["teams"]["away"]["name"]
-    status = fx["fixture"]["status"]["short"]  # "NS", "FT", ...
+    status = fx["fixture"]["status"]["short"]  # e.g. "NS", "FT"
     score = fx.get("goals", {})
     hs, as_ = score.get("home"), score.get("away")
-    if status in ("FT", "AET", "PEN"):  # terminé
+    if status in ("FT", "AET", "PEN"):  # match terminé
         return f"{league} – {home} {hs}-{as_} {away} (terminé le {when})."
     return f"{league} – {home} vs {away} (le {when})."
 
@@ -75,9 +80,8 @@ def sports_text_result_today(team_name: str) -> str:
     today = datetime.now(tz).date()
     fxs = _fixtures_by_date(tid, today)
     if fxs:
-        # s'il y a plusieurs matchs (rare), on renvoie le premier
         return "Match du jour : " + _render_fixture(fxs[0])
-    # sinon, renvoie le dernier match joué (utile si la demande tombe après minuit)
+    # sinon, renvoyer le dernier match joué
     last = foot_last_match(tid)
     if last:
         return "Dernier match : " + _render_fixture(last)
@@ -92,7 +96,7 @@ def sports_text_result_yesterday(team_name: str) -> str:
     fxs = _fixtures_by_date(tid, yday)
     if fxs:
         return "Match d’hier : " + _render_fixture(fxs[0])
-    # fallback: dernier match
+    # sinon, renvoyer le dernier match par défaut
     last = foot_last_match(tid)
     if last:
         return "Dernier match : " + _render_fixture(last)
@@ -107,5 +111,5 @@ def sports_dispatch(intent: str, team: str | None) -> str:
         return sports_text_result_today(team)
     if intent == "SPORT_RESULT_YESTERDAY":
         return sports_text_result_yesterday(team)
-    # fallback
+    # fallback sécurité
     return sports_text_next(team)
