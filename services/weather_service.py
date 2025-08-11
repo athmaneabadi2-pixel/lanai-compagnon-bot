@@ -40,7 +40,7 @@ def weather_text(when: str | None = None, city: str | None = None, default_city:
     city: ex. "Loffre", "Le Cannet"
     """
     if not OPENWEATHER_API_KEY:
-        return "Clé OpenWeather manquante."
+        return "Désolé, le service météo n’est pas disponible pour le moment."
 
     choice = _pick_city(city, default_city=default_city)
     data = _onecall(choice["lat"], choice["lon"])
