@@ -28,6 +28,21 @@ def load_memory() -> dict:
     else:
         profile["children"] = children_val or []
     profile["pet"] = vie.get("Animal de compagnie") or "Lana"
+
+    # Traitement des petits-enfants (extraction des prénoms)
+    grandkids_val = fam.get("Petits-enfants (noms, âges, relation)") or fam.get("Petits-enfants")
+    if isinstance(grandkids_val, str):
+        # Extraire les prénoms des petits-enfants depuis la chaîne (ignore les détails)
+        gnames = []
+        for part in grandkids_val.split(","):
+            subpart = part.split("–")[0].strip()
+            name = subpart.split("(")[0].strip()
+            if name:
+                gnames.append(name)
+        profile["grandchildren"] = gnames
+    else:
+        profile["grandchildren"] = grandkids_val or []
+
     profile["city_default"] = raw.get("Ville par défaut") or "Loffre"
 
     return {"_raw": raw, "profile": profile}
